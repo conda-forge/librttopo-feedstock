@@ -13,7 +13,7 @@ source:
     - 0001-fix_msvc_paths_and_add_autotools_headers.patch  # [win]
 
 build:
-  number: 2
+  number: 3
   run_exports:
     # No idea.  Staying with minor version pin.
     - {{ pin_subpackage('librttopo', max_pin='x.x') }}
