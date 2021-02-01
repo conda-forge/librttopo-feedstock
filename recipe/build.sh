@@ -1,7 +1,5 @@
 #!/bin/bash
 
-./autogen.sh
-
 ./configure \
     --prefix=${PREFIX} \
     --libdir=${PREFIX}/lib \
