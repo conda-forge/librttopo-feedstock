@@ -3,6 +3,7 @@ import sys
 import ctypes
 
 if sys.platform == 'win32':
+    assert os.path.exists(os.path.join(sys.prefix, 'Library', 'lib', 'librttopo.lib'))
     path = os.path.join(sys.prefix, 'Library', 'bin', 'librttopo.dll')
     libfreexl = ctypes.CDLL(path)
 elif sys.platform == 'darwin':
