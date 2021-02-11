@@ -7,6 +7,6 @@ channel_targets:
 cxx_compiler:
 - vs2017
 geos:
-- 3.9.0
+- 3.9.1
 target_platform:
 - win-64
