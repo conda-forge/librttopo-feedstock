@@ -9,7 +9,7 @@ cp $BUILD_PREFIX/share/gnuconfig/config.* .
     --with-geosconfig=$PREFIX/bin/geos-config
 
 make
-if [[ "${CONDA_BUILD_CROSS_COMPILATION}" != "1" ]]; then
+if [[ "${CONDA_BUILD_CROSS_COMPILATION:-}" != "1" || "${CROSSCOMPILING_EMULATOR}" != "" ]]; then
 make check
 fi
 make install

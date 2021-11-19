@@ -13,7 +13,7 @@ source:
     - 0001-fix_msvc_paths.patch  # [win]
 
 build:
-  number: 7
+  number: 8
   run_exports:
     # No idea.  Staying with minor version pin.
     - {{ pin_subpackage('librttopo', max_pin='x.x') }}
