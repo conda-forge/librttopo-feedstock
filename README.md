@@ -1,11 +1,11 @@
-About librttopo
-===============
+About librttopo-feedstock
+=========================
+
+Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/librttopo-feedstock/blob/main/LICENSE.txt)
 
 Home: https://git.osgeo.org/gitea/rttopo/librttopo
 
 Package license: GPL-2.0-or-later
-
-Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/librttopo-feedstock/blob/main/LICENSE.txt)
 
 Summary: The RT Topology Library exposes an API to create and manage standard
 topologies using user-provided data stores.
