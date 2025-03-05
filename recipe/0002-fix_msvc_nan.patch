@@ -1,0 +1,15 @@
+diff -ruN librttopo-1.1.0/src/rtout_wkb.c librttopo-1.1.0-patch/src/rtout_wkb.c
+--- librttopo-1.1.0/src/rtout_wkb.c	2019-07-27 08:55:02.000000000 +0200
++++ librttopo-1.1.0-patch/src/rtout_wkb.c	2025-03-05 09:56:24.470844201 +0100
+@@ -27,6 +27,11 @@
+ #include "rttopo_config.h"
+ #include <math.h>
+ 
++#ifdef _MSC_VER
++#undef NAN
++#define NAN (-(float)(((float)(1e+300 * 1e+300)) * 0.0F))
++#endif
++
+ #include "librttopo_geom_internal.h"
+ #include "rtgeom_log.h"
+ 
