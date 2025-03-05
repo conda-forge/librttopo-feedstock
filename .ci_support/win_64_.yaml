@@ -9,6 +9,6 @@ channel_targets:
 cxx_compiler:
 - vs2019
 geos:
-- 3.13.0
+- 3.13.1
 target_platform:
 - win-64
