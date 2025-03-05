@@ -11,9 +11,10 @@ source:
   sha256: 5b4002b2b6be1fe59a487cff6edbc81db773dd1e437beb966fac6ac68e849f19
   patches:
     - 0001-fix_msvc_paths.patch  # [win]
+    - 0002-fix_msvc_nan.patch  # [win]
 
 build:
-  number: 17
+  number: 18
   run_exports:
     # No idea.  Staying with minor version pin.
     - {{ pin_subpackage('librttopo', max_pin='x.x') }}
