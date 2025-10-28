@@ -14,7 +14,7 @@ source:
     - 0002-fix_msvc_nan.patch  # [win]
 
 build:
-  number: 19
+  number: 20
   run_exports:
     # No idea.  Staying with minor version pin.
     - {{ pin_subpackage('librttopo', max_pin='x.x') }}
