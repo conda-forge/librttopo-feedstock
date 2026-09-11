@@ -14,7 +14,7 @@ source:
     - 0002-fix_msvc_nan.patch  # [win]
 
 build:
-  number: 20
+  number: 21
   run_exports:
     # No idea.  Staying with minor version pin.
     - {{ pin_subpackage('librttopo', max_pin='x.x') }}
@@ -30,6 +30,15 @@ requirements:
     - geos
   run:
     - geos
+
+test:
+  files:
+    - test-point.c
+    - test-point.bat
+  requires:
+    - {{ compiler('c') }}  # [win]
+  commands:
+    - call test-point.bat  # [win]
 
 about:
   home: https://git.osgeo.org/gitea/rttopo/librttopo
