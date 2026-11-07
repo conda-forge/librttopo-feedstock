@@ -18,7 +18,7 @@ source:
         - 0002-fix_msvc_nan.patch
 
 build:
-  number: 22
+  number: 23
 
 requirements:
   build:
