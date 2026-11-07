@@ -49,10 +49,24 @@ tests:
     files:
       recipe:
         - run_test.py
+  # adding a line that partly runs along an existing edge (GEOS >= 3.15)
+  - if: unix and build_platform == target_platform
+    then:
+      script:
+        - ${CC} ${CFLAGS} ${CPPFLAGS} -I${PREFIX}/include test-addline.c -o test-addline ${LDFLAGS} -L${PREFIX}/lib -Wl,-rpath,${PREFIX}/lib -lrttopo -lgeos_c
+        - ./test-addline
+      requirements:
+        build:
+          - ${{ compiler('c') }}
+          - ${{ stdlib('c') }}
+      files:
+        recipe:
+          - test-addline.c
   - if: win
     then:
       script:
         - call test-point.bat
+        - call test-addline.bat
       requirements:
         build:
           - ${{ compiler('c') }}
@@ -60,6 +74,8 @@ tests:
         recipe:
           - test-point.c
           - test-point.bat
+          - test-addline.c
+          - test-addline.bat
 
 about:
   homepage: https://git.osgeo.org/gitea/rttopo/librttopo
