@@ -1,0 +1,276 @@
+Preserve topology nodes and overlay junctions under GEOS >= 3.15 line merging.
+
+GEOS >= 3.15 returns overlay and unary-union output line-merged
+(libgeos/geos#1459), so splits that rtt_AddLine relies on are lost:
+
+- Backport PostGIS commit ca3323d8c748dd806bab188028bb61c5f67b39af
+  (https://github.com/postgis/postgis/pull/1160): collect the junctions
+  between the shared and non-shared linework of a new line before line
+  merging hides them, and re-split the noded line at them.
+- librttopo still runs a unary union after splitting the line at existing
+  nodes (PostGIS no longer does); split at those nodes again afterwards,
+  and do the overlay-junction split after that step.
+- Split at the endpoints of the input line that do not lie on linework
+  shared with existing edges, so that the start point of a closed input
+  line stays a node where it was one with older GEOS.
+
+All extra splits are no-ops with older GEOS.
+
+diff -ruN librttopo-1.1.0/src/rtgeom_topo.c librttopo-1.1.0-patch/src/rtgeom_topo.c
+--- librttopo-1.1.0/src/rtgeom_topo.c	2018-01-25 09:38:45.000000000 +0100
++++ librttopo-1.1.0-patch/src/rtgeom_topo.c	2026-11-07 21:43:49.996075327 +0100
+@@ -5705,6 +5705,126 @@
+ }
+ 
+ /*
++ * Release a collection returned by rtcollection_extract or
++ * rtgeom_as_multi, whose components are shallow clones.
++ */
++static void
++_rtt_release_shallow_collection(const RTCTX *ctx, RTCOLLECTION *col)
++{
++  int i;
++  if ( ! col ) return;
++  for (i=0; i<col->ngeoms; ++i) rtgeom_release(ctx, col->geoms[i]);
++  if ( col->geoms ) rtfree(ctx, col->geoms);
++  col->geoms = NULL;
++  col->ngeoms = 0;
++  rtcollection_release(ctx, col);
++}
++
++/*
++ * Mod-2 boundary of a lineal geometry, computed by GEOS.
++ * Returns NULL on error.
++ */
++static RTGEOM *
++_rtt_lineal_boundary(const RTCTX *ctx, const RTGEOM *g)
++{
++  GEOSGeometry *gg, *gb;
++  RTGEOM *ret;
++
++  _rtt_EnsureGeos(ctx);
++
++  gg = RTGEOM2GEOS(ctx, g, 0);
++  if ( ! gg )
++  {
++    rterror(ctx, "Could not convert geometry to GEOS: %s",
++            rtgeom_get_last_geos_error(ctx));
++    return NULL;
++  }
++  gb = GEOSBoundary_r(ctx->gctx, gg);
++  GEOSGeom_destroy_r(ctx->gctx, gg);
++  if ( ! gb )
++  {
++    rterror(ctx, "Could not compute boundary: %s",
++            rtgeom_get_last_geos_error(ctx));
++    return NULL;
++  }
++  ret = GEOS2RTGEOM(ctx, gb, RTFLAGS_GET_Z(g->flags));
++  GEOSGeom_destroy_r(ctx->gctx, gb);
++  return ret;
++}
++
++/*
++ * Compute the junction points between the overlay intersection linework
++ * (shared paths and crossings between the noded line and nearby edges)
++ * and the rest of the noded line: the 0-dimensional intersection
++ * components plus the mod-2 boundary of the 1-dimensional ones.
++ *
++ * These junctions must become topology nodes. GEOS >= 3.15 returns
++ * overlay output line-merged, which would otherwise hide them inside
++ * line interiors. Older GEOS keeps them as boundaries of the overlay
++ * output components, making a split at them a no-op.
++ *
++ * Backported from PostGIS commit ca3323d8c748dd806bab188028bb61c5f67b39af
++ * (https://github.com/postgis/postgis/pull/1160).
++ *
++ * Returns a MULTIPOINT.
++ */
++static RTGEOM *
++_rtt_overlay_split_points(const RTCTX *ctx, const RTGEOM *xset)
++{
++  RTGEOM *multi;
++  RTCOLLECTION *xcol, *epoints, *lines;
++  RTCOLLECTION *points;
++  RTGEOM *bnd;
++  int i;
++
++  points = rtcollection_construct_empty(ctx, RTMULTIPOINTTYPE, xset->srid,
++                                        RTFLAGS_GET_Z(xset->flags),
++                                        RTFLAGS_GET_M(xset->flags));
++  if ( rtgeom_is_empty(ctx, xset) ) return rtcollection_as_rtgeom(ctx, points);
++
++  multi = rtgeom_as_multi(ctx, xset);
++  xcol = rtgeom_as_rtcollection(ctx, multi);
++  if ( ! xcol )
++  {
++    rtgeom_release(ctx, multi); /* shallow clone, see rtgeom_as_multi */
++    return rtcollection_as_rtgeom(ctx, points);
++  }
++
++  epoints = rtcollection_extract(ctx, xcol, RTPOINTTYPE);
++  lines = rtcollection_extract(ctx, xcol, RTLINETYPE);
++
++  for (i = 0; i < epoints->ngeoms; i++)
++    rtcollection_add_rtgeom(ctx, points, rtgeom_clone_deep(ctx, epoints->geoms[i]));
++
++  if ( lines->ngeoms )
++  {
++    bnd = _rtt_lineal_boundary(ctx, rtcollection_as_rtgeom(ctx, lines));
++    if ( bnd )
++    {
++      RTCOLLECTION *bcol = rtgeom_as_rtcollection(ctx, bnd);
++      if ( bcol )
++      {
++        for (i = 0; i < bcol->ngeoms; i++)
++          rtcollection_add_rtgeom(ctx, points, rtgeom_clone_deep(ctx, bcol->geoms[i]));
++      }
++      else if ( ! rtgeom_is_empty(ctx, bnd) )
++      {
++        rtcollection_add_rtgeom(ctx, points, rtgeom_clone_deep(ctx, bnd));
++      }
++      rtgeom_free(ctx, bnd);
++    }
++  }
++
++  _rtt_release_shallow_collection(ctx, epoints);
++  _rtt_release_shallow_collection(ctx, lines);
++  /* rtgeom_as_multi returns shallow clones of the components of xset */
++  _rtt_release_shallow_collection(ctx, xcol);
++
++  points->srid = xset->srid;
++  return rtcollection_as_rtgeom(ctx, points);
++}
++
++/*
+  * @param handleFaceSplit if non-zero the code will check
+  *        if the newly added edge would split a face and if so
+  *        would create new faces accordingly. Otherwise it will
+@@ -5718,7 +5838,7 @@
+   RTGEOM *geomsbuf[1];
+   RTGEOM **geoms;
+   int ngeoms;
+-  RTGEOM *noded, *tmp;
++  RTGEOM *noded, *tmp, *xsplit = NULL, *xshared = NULL;
+   RTCOLLECTION *col;
+   RTT_ELEMID *ids;
+   RTT_ISO_EDGE *edges;
+@@ -5807,6 +5927,13 @@
+                   snapped->srid, iedges->srid);
+       set1 = rtgeom_intersection(iface->ctx, snapped, iedges);
+       RTDEBUGG(iface->ctx, 1, set1, "Intersected");
++      /* Collect the junctions between shared and non-shared linework
++       * before line merging can hide them (see step 2.2) */
++      if ( set1 )
++      {
++        xsplit = _rtt_overlay_split_points(iface->ctx, set1);
++        xshared = rtgeom_clone_deep(iface->ctx, set1);
++      }
+       rtgeom_free(iface->ctx, snapped);
+       RTDEBUGF(iface->ctx, 1, "Linemerging set1, with srid=%d", set1->srid);
+       set2 = rtgeom_linemerge(iface->ctx, set1);
+@@ -5833,6 +5960,8 @@
+   nodes = rtt_be_getNodeWithinBox2D( topo, &qbox, &num, RTT_COL_NODE_ALL, 0 );
+   if ( num == -1 )
+   {
++    if ( xsplit ) rtgeom_free(iface->ctx, xsplit);
++    if ( xshared ) rtgeom_free(iface->ctx, xshared);
+     rtgeom_free(iface->ctx, noded);
+     rterror(iface->ctx, "Backend error: %s", rtt_be_lastErrorMessage(topo->be_iface));
+     return NULL;
+@@ -5879,9 +6008,6 @@
+       noded = tmp;
+       RTDEBUGG(iface->ctx, 1, noded, "Node-split");
+ 
+-      /* will not release the geoms array */
+-      rtcollection_release(iface->ctx, col);
+-
+       /*
+       -- re-node to account for ST_Snap introduced self-intersections
+       -- See http://trac.osgeo.org/postgis/ticket/1714
+@@ -5892,11 +6018,85 @@
+       noded = tmp;
+       RTDEBUGG(iface->ctx, 1, noded, "Unary-unioned");
+ 
++      /*
++       * GEOS >= 3.15 line-merges the unary union output, joining
++       * again the components that were just split at existing
++       * nodes. Split again; with older GEOS this is a no-op.
++       */
++      tmp = _rtt_split_by_nodes(iface->ctx, noded, inodes);
++      rtgeom_free(iface->ctx, noded);
++      noded = tmp;
++      RTDEBUGG(iface->ctx, 1, noded, "Node-resplit");
++
++      /* will not release the geoms array */
++      rtcollection_release(iface->ctx, col);
++
+     }}
+     rtfree(iface->ctx, nearby);
+     _rtt_release_nodes(iface->ctx, nodes, num);
+   }}
+ 
++  /* 2.2. Split by overlay junctions
++   *
++   * GEOS >= 3.15 returns line-merged overlay output, hiding the
++   * junctions between shared and non-shared linework inside line
++   * interiors. Splitting restores them; older GEOS keeps them as
++   * component boundaries and the split is a no-op. This must come
++   * after the unary union of step 2.1, which would merge them again.
++   */
++  if ( xsplit )
++  {
++    if ( ! rtgeom_is_empty(iface->ctx, xsplit) )
++    {
++      tmp = _rtt_split_by_nodes(iface->ctx, noded, xsplit);
++      rtgeom_free(iface->ctx, noded);
++      noded = tmp;
++      RTDEBUGG(iface->ctx, 1, noded, "Overlay-junction-split");
++    }
++    rtgeom_free(iface->ctx, xsplit);
++  }
++
++  /* 2.3. Split by the endpoints of the input line
++   *
++   * GEOS >= 3.15 also line-merges across the start point of a closed
++   * input line, which older GEOS kept as a component boundary, and
++   * hence as a node, unless it fell on linework shared with existing
++   * edges. Split there again; for an open line, or with older GEOS,
++   * the split is a no-op.
++   */
++  if ( line->points && line->points->npoints > 1 )
++  {{
++    RTGEOM *ends[2];
++    int nends = 0;
++    int k;
++    for (k = 0; k < 2; ++k)
++    {
++      RTPOINT *pt = rtline_get_rtpoint(iface->ctx, line,
++                                       k ? line->points->npoints - 1 : 0);
++      if ( ! pt ) continue;
++      if ( xshared && ! rtgeom_is_empty(iface->ctx, xshared) &&
++           rtgeom_mindistance2d(iface->ctx, rtpoint_as_rtgeom(iface->ctx, pt), xshared) == 0 )
++      {
++        /* on shared linework: older GEOS did not keep it either */
++        rtpoint_free(iface->ctx, pt);
++        continue;
++      }
++      ends[nends++] = rtpoint_as_rtgeom(iface->ctx, pt);
++    }
++    if ( nends )
++    {
++      RTCOLLECTION *ecol = rtcollection_construct(iface->ctx, RTMULTIPOINTTYPE,
++                                                  noded->srid, NULL, nends, ends);
++      tmp = _rtt_split_by_nodes(iface->ctx, noded, rtcollection_as_rtgeom(iface->ctx, ecol));
++      rtgeom_free(iface->ctx, noded);
++      noded = tmp;
++      RTDEBUGG(iface->ctx, 1, noded, "Endpoint-split");
++      rtcollection_release(iface->ctx, ecol);
++    }
++    for (k = 0; k < nends; ++k) rtgeom_free(iface->ctx, ends[k]);
++  }}
++  if ( xshared ) rtgeom_free(iface->ctx, xshared);
++
+   RTDEBUGG(iface->ctx, 1, noded, "Finally-noded");
+ 
+   /* 3. For each (now-noded) segment, insert an edge */

@@ -10,7 +10,6 @@ Package license: GPL-2.0-or-later
 Summary: The RT Topology Library exposes an API to create and manage standard
 topologies using user-provided data stores.
 
-
 Development: https://git.osgeo.org/gitea/rttopo/librttopo
 
 Documentation: https://git.osgeo.org/gitea/rttopo/librttopo
@@ -26,7 +25,6 @@ release cycles.
 The RT Topology Library was funded by “Regione Toscana - SITA” (CIG:
 6445512CC1), which also funded many improvements in the originating
 liblwgeom.
-
 
 Current build status
 ====================
