@@ -16,6 +16,9 @@ source:
       then:
         - 0001-fix_msvc_paths.patch
         - 0002-fix_msvc_nan.patch
+    # Backport of PostGIS ca3323d8c7 (postgis/postgis#1160): GEOS >= 3.15
+    # line-merges overlay output, hiding junctions that must become nodes
+    - 0003-preserve-overlay-junctions-geos-3.15.patch
 
 build:
   number: 23
