@@ -21,7 +21,7 @@ source:
     - 0003-preserve-overlay-junctions-geos-3.15.patch
 
 build:
-  number: 23
+  number: 24
 
 requirements:
   build:
